@@ -99,6 +99,7 @@ async def on_ready():
 @bot.command(name='seo')
 async def seo_analysis(ctx, *, keyword: str):
     wait_msg = await ctx.send(f"🔍 Analizando el mercado para: **{keyword}**... Un momento.")
+    filename = None
     try:
         agent = MeliMasterSEOAgent(site_id="MLA")
         winning_kw = await asyncio.to_thread(agent.get_winning_keyword, keyword)
@@ -108,7 +109,10 @@ async def seo_analysis(ctx, *, keyword: str):
             await wait_msg.edit(content=f"❌ Error al consultar la API: {market_data['error']}")
             return
 
-        filename = f"reporte_{winning_kw.replace(' ', '_')}.csv"
+        # Limpiamos caracteres raros para evitar problemas con nombres de archivo
+        safe_kw = "".join(c for c in winning_kw if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+        filename = f"reporte_{safe_kw}.csv"
+        
         await asyncio.to_thread(agent.export_csv, market_data, filename)
 
         total_items = len(market_data["items"])
@@ -119,13 +123,21 @@ async def seo_analysis(ctx, *, keyword: str):
         embed.add_field(name="Keyword Ganadora", value=f"**{winning_kw}**", inline=True)
         embed.add_field(name="Aprobados", value=f"{aprobados}/{total_items}", inline=False)
         
-        with open(filename, 'rb') as f:
-            await ctx.send(embed=embed, file=discord.File(f, filename=filename))
+        if os.path.exists(filename):
+            with open(filename, 'rb') as f:
+                await ctx.send(embed=embed, file=discord.File(f, filename=filename))
+        else:
+            await ctx.send(embed=embed, content="⚠️ El análisis se completó, pero no se pudo generar el archivo CSV.")
             
-        os.remove(filename)
         await wait_msg.delete()
     except Exception as e:
-        await wait_msg.edit(content=f"❌ Ocurrió an error: {str(e)}")
+        await wait_msg.edit(content=f"❌ Ocurrió un error: {str(e)}")
+    finally:
+        if filename and os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
