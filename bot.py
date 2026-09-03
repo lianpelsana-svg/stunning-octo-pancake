@@ -1,3 +1,4 @@
+Aquí tienes el código completo y corregido de bot.py con la integración limpia de FastAPI y el hilo en segundo plano mediante el evento startup, listo para funcionar en Render sin errores de compilación ni bloqueos:
 import os
 import re
 import csv
@@ -8,20 +9,17 @@ import discord
 from discord.ext import commands
 from fastapi import FastAPI
 
-# Servidor web falso para mantener la app despierta en Render
+# ==========================================
+# 1. CONFIGURACIÓN DEL SERVIDOR WEB (FASTAPI)
+# ==========================================
 app = FastAPI()
 
 @app.get("/")
 def home():
     return {"status": "Bot is running!"}
 
-def run_web():
-    import uvicorn
-    port = int(os.getenv("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
 # ==========================================
-# VALIDADOR Y AGENTE SEO DE MERCADO LIBRE
+# 2. VALIDADOR Y AGENTE SEO DE MERCADO LIBRE
 # ==========================================
 class MercadoLibreSEOValidator:
     def __init__(self, title, brand=""):
@@ -100,15 +98,16 @@ class MeliMasterSEOAgent:
                 ])
 
 # ==========================================
-# CONFIGURACIÓN DEL BOT DE DISCORD
+# 3. CONFIGURACIÓN DEL BOT DE DISCORD
 # ==========================================
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+# case_insensitive=True permite que responda tanto !seo como !SEO
+bot = commands.Bot(command_prefix='!', intents=intents, case_insensitive=True)
 
 @bot.event
 async def on_ready():
-    print(f'🔥 Bot conectado como {bot.user}')
+    print(f'🔥 Bot conectado exitosamente como {bot.user}')
 
 @bot.command(name='seo')
 async def seo_analysis(ctx, *, keyword: str):
@@ -141,20 +140,25 @@ async def seo_analysis(ctx, *, keyword: str):
     except Exception as e:
         await wait_msg.edit(content=f"❌ Ocurrió un error: {str(e)}")
 
-if __name__ == "__main__":
-    # Arrancamos FastAPI en segundo plano
-    t = threading.Thread(target=run_web)
-    t.daemon = True
-    t.start()
+# ==========================================
+# 4. ARRANQUE AUTOMÁTICO VÍA STARTUP EVENT
+# ==========================================
+@app.on_event("startup")
+def startup_event():
+    token = os.getenv('DISCORD_TOKEN')
+    if not token:
+        print("❌ ERROR CRÍTICO: La variable de entorno 'DISCORD_TOKEN' no está configurada.")
+        return
     
-    TOKEN = os.getenv('DISCORD_TOKEN')
-    
-    if not TOKEN:
-        print("❌ ERROR CRÍTICO: La variable de entorno 'DISCORD_TOKEN' no está configurada en Render o está vacía.")
-    else:
-        print(f"🔑 Token detectado correctamente (longitud de caracteres: {len(TOKEN)}). Intentando conectar a Discord...")
+    print(f"🔑 Token detectado correctamente (longitud: {len(token)}). Iniciando el bot de Discord...")
+
+    def run_discord():
         try:
-            bot.run(TOKEN)
+            asyncio.run(bot.start(token))
         except Exception as e:
-            print(f"❌ ERROR AL INICIAR EL BOT DE DISCORD: {e}")
-            
+            print(f"❌ Error al arrancar el bot de Discord: {e}")
+
+    # Lanzamos el bot en un hilo secundario para que no bloquee el servidor web de Render
+    discord_thread = threading.Thread(target=run_discord, daemon=True)
+    discord_thread.start()
+
