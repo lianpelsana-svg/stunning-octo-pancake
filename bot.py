@@ -1,4 +1,3 @@
-Aquí tienes el código completo y corregido de bot.py con la integración limpia de FastAPI y el hilo en segundo plano mediante el evento startup, listo para funcionar en Render sin errores de compilación ni bloqueos:
 import os
 import re
 import csv
