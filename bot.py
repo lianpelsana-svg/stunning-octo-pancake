@@ -142,9 +142,19 @@ async def seo_analysis(ctx, *, keyword: str):
         await wait_msg.edit(content=f"❌ Ocurrió un error: {str(e)}")
 
 if __name__ == "__main__":
+    # Arrancamos FastAPI en segundo plano
     t = threading.Thread(target=run_web)
+    t.daemon = True
     t.start()
     
     TOKEN = os.getenv('DISCORD_TOKEN')
-    bot.run(TOKEN)
     
+    if not TOKEN:
+        print("❌ ERROR CRÍTICO: La variable de entorno 'DISCORD_TOKEN' no está configurada en Render o está vacía.")
+    else:
+        print(f"🔑 Token detectado correctamente (longitud de caracteres: {len(TOKEN)}). Intentando conectar a Discord...")
+        try:
+            bot.run(TOKEN)
+        except Exception as e:
+            print(f"❌ ERROR AL INICIAR EL BOT DE DISCORD: {e}")
+            
