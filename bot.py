@@ -2,23 +2,12 @@ import os
 import re
 import csv
 import asyncio
-import threading
 import requests
 import discord
 from discord.ext import commands
-from fastapi import FastAPI
 
 # ==========================================
-# 1. CONFIGURACIÓN DEL SERVIDOR WEB (FASTAPI)
-# ==========================================
-app = FastAPI()
-
-@app.get("/")
-def home():
-    return {"status": "Bot is running!"}
-
-# ==========================================
-# 2. VALIDADOR Y AGENTE SEO DE MERCADO LIBRE
+# VALIDADOR Y AGENTE SEO DE MERCADO LIBRE
 # ==========================================
 class MercadoLibreSEOValidator:
     def __init__(self, title, brand=""):
@@ -97,11 +86,10 @@ class MeliMasterSEOAgent:
                 ])
 
 # ==========================================
-# 3. CONFIGURACIÓN DEL BOT DE DISCORD
+# CONFIGURACIÓN DEL BOT DE DISCORD
 # ==========================================
 intents = discord.Intents.default()
 intents.message_content = True
-# case_insensitive=True permite que responda tanto !seo como !SEO
 bot = commands.Bot(command_prefix='!', intents=intents, case_insensitive=True)
 
 @bot.event
@@ -137,27 +125,12 @@ async def seo_analysis(ctx, *, keyword: str):
         os.remove(filename)
         await wait_msg.delete()
     except Exception as e:
-        await wait_msg.edit(content=f"❌ Ocurrió un error: {str(e)}")
+        await wait_msg.edit(content=f"❌ Ocurrió an error: {str(e)}")
 
-# ==========================================
-# 4. ARRANQUE AUTOMÁTICO VÍA STARTUP EVENT
-# ==========================================
-@app.on_event("startup")
-def startup_event():
+if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
     if not token:
-        print("❌ ERROR CRÍTICO: La variable de entorno 'DISCORD_TOKEN' no está configurada.")
-        return
-    
-    print(f"🔑 Token detectado correctamente (longitud: {len(token)}). Iniciando el bot de Discord...")
-
-    def run_discord():
-        try:
-            asyncio.run(bot.start(token))
-        except Exception as e:
-            print(f"❌ Error al arrancar el bot de Discord: {e}")
-
-    # Lanzamos el bot en un hilo secundario para que no bloquee el servidor web de Render
-    discord_thread = threading.Thread(target=run_discord, daemon=True)
-    discord_thread.start()
-
+        print("❌ ERROR: Falta la variable DISCORD_TOKEN")
+    else:
+        bot.run(token)
+        
