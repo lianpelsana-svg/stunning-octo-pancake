@@ -40,12 +40,16 @@ class MeliMasterSEOAgent:
     def __init__(self, site_id="MLA"):
         self.site_id = site_id
         self.search_url = f"https://api.mercadolibre.com/sites/{site_id}/search"
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://www.mercadolibre.com.ar/"
+        }
         
     def get_winning_keyword(self, seed_keyword):
         url = f"https://http2.mlstatic.com/resources/sites/{self.site_id}/autosuggest?q={seed_keyword}"
-        headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=self.headers, timeout=5)
             response.raise_for_status()
             suggestions = response.json().get("suggested_queries", [])
             return suggestions[0].get("q") if suggestions else seed_keyword
@@ -54,9 +58,8 @@ class MeliMasterSEOAgent:
 
     def get_top_keywords(self, seed_keyword, limit=8):
         url = f"https://http2.mlstatic.com/resources/sites/{self.site_id}/autosuggest?q={seed_keyword}"
-        headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=self.headers, timeout=5)
             response.raise_for_status()
             suggestions = response.json().get("suggested_queries", [])
             keywords = [item.get("q") for item in suggestions[:limit]]
@@ -66,7 +69,7 @@ class MeliMasterSEOAgent:
 
     def analyze_market(self, keyword, limit=15):
         try:
-            response = requests.get(self.search_url, params={"q": keyword, "limit": limit})
+            response = requests.get(self.search_url, headers=self.headers, params={"q": keyword, "limit": limit}, timeout=5)
             results = response.json().get("results", [])
         except Exception as e:
             return {"error": str(e)}
@@ -188,4 +191,4 @@ if __name__ == "__main__":
         print("❌ ERROR: Falta la variable DISCORD_TOKEN")
     else:
         bot.run(token)
-    
+        
