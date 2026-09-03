@@ -52,6 +52,18 @@ class MeliMasterSEOAgent:
         except Exception:
             return seed_keyword
 
+    def get_top_keywords(self, seed_keyword, limit=8):
+        url = f"https://http2.mlstatic.com/resources/sites/{self.site_id}/autosuggest?q={seed_keyword}"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            suggestions = response.json().get("suggested_queries", [])
+            keywords = [item.get("q") for item in suggestions[:limit]]
+            return keywords if keywords else [seed_keyword]
+        except Exception:
+            return [seed_keyword]
+
     def analyze_market(self, keyword, limit=15):
         try:
             response = requests.get(self.search_url, params={"q": keyword, "limit": limit})
@@ -109,7 +121,14 @@ async def seo_analysis(ctx, *, keyword: str):
             await wait_msg.edit(content=f"❌ Error al consultar la API: {market_data['error']}")
             return
 
-        # Limpiamos caracteres raros para evitar problemas con nombres de archivo
+        # Respaldo automático si la sugerencia no arroja productos
+        if not market_data.get("items"):
+            winning_kw = keyword
+            market_data = await asyncio.to_thread(agent.analyze_market, winning_kw, limit=15)
+            if not market_data.get("items"):
+                await wait_msg.edit(content=f"⚠️ MercadoLibre no devolvió productos para '**{keyword}**'. Prueba con otra palabra clave.")
+                return
+
         safe_kw = "".join(c for c in winning_kw if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
         filename = f"reporte_{safe_kw}.csv"
         
@@ -126,8 +145,7 @@ async def seo_analysis(ctx, *, keyword: str):
         if os.path.exists(filename):
             with open(filename, 'rb') as f:
                 await ctx.send(embed=embed, file=discord.File(f, filename=filename))
-        else:
-            await ctx.send(embed=embed, content="⚠️ El análisis se completó, pero no se pudo generar el archivo CSV.")
+            os.remove(filename)
             
         await wait_msg.delete()
     except Exception as e:
@@ -139,10 +157,35 @@ async def seo_analysis(ctx, *, keyword: str):
             except Exception:
                 pass
 
+@bot.command(name='keywords', aliases=['kw'])
+async def keyword_research(ctx, *, keyword: str):
+    wait_msg = await ctx.send(f"🔍 Buscando tendencias de búsqueda para: **{keyword}**...")
+    try:
+        agent = MeliMasterSEOAgent(site_id="MLA")
+        top_kws = await asyncio.to_thread(agent.get_top_keywords, keyword, limit=8)
+        
+        embed = discord.Embed(
+            title="🔥 Tendencias de Búsqueda en Mercado Libre",
+            description=f"Términos más populares basados en lo que la gente busca para: *{keyword}*",
+            color=discord.Color.blue()
+        )
+        
+        lista_format = ""
+        for i, kw in enumerate(top_kws, 1):
+            lista_format += f"**{i}.** `{kw}`\n"
+            
+        embed.add_field(name="Palabras Clave Sugeridas", value=lista_format, inline=False)
+        embed.set_footer(text="Usa estas keywords en tus títulos para ganar visibilidad.")
+        
+        await ctx.send(embed=embed)
+        await wait_msg.delete()
+    except Exception as e:
+        await wait_msg.edit(content=f"❌ Ocurrió un error: {str(e)}")
+
 if __name__ == "__main__":
     token = os.getenv('DISCORD_TOKEN')
     if not token:
         print("❌ ERROR: Falta la variable DISCORD_TOKEN")
     else:
         bot.run(token)
-        
+    
