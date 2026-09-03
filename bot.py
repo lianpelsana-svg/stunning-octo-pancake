@@ -5,6 +5,7 @@ import asyncio
 import requests
 import discord
 from discord.ext import commands
+from collections import Counter
 
 # ==========================================
 # VALIDADOR Y AGENTE SEO DE MERCADO LIBRE
@@ -45,29 +46,8 @@ class MeliMasterSEOAgent:
             "Accept": "application/json",
             "Referer": "https://www.mercadolibre.com.ar/"
         }
-        
-    def get_winning_keyword(self, seed_keyword):
-        url = f"https://http2.mlstatic.com/resources/sites/{self.site_id}/autosuggest?q={seed_keyword}"
-        try:
-            response = requests.get(url, headers=self.headers, timeout=5)
-            response.raise_for_status()
-            suggestions = response.json().get("suggested_queries", [])
-            return suggestions[0].get("q") if suggestions else seed_keyword
-        except Exception:
-            return seed_keyword
 
-    def get_top_keywords(self, seed_keyword, limit=8):
-        url = f"https://http2.mlstatic.com/resources/sites/{self.site_id}/autosuggest?q={seed_keyword}"
-        try:
-            response = requests.get(url, headers=self.headers, timeout=5)
-            response.raise_for_status()
-            suggestions = response.json().get("suggested_queries", [])
-            keywords = [item.get("q") for item in suggestions[:limit]]
-            return keywords if keywords else [seed_keyword]
-        except Exception:
-            return [seed_keyword]
-
-    def analyze_market(self, keyword, limit=15):
+    def analyze_market(self, keyword, limit=20):
         try:
             response = requests.get(self.search_url, headers=self.headers, params={"q": keyword, "limit": limit}, timeout=5)
             results = response.json().get("results", [])
@@ -79,10 +59,28 @@ class MeliMasterSEOAgent:
             brand = next((a.get("value_name", "") for a in item.get("attributes", []) if a.get("id") == "BRAND"), "")
             validator = MercadoLibreSEOValidator(item.get("title", ""), brand=brand)
             report["items"].append({
-                "id": item.get("id"), "price": item.get("price"),
+                "id": item.get("id"), "price": item.get("price"), "title": item.get("title"),
                 "seo": validator.validate(), "link": item.get("permalink")
             })
         return report
+
+    def extract_top_keywords(self, market_data, limit=8):
+        # Stopwords comunes en español para ignorar palabras vacías
+        stopwords = {"de", "la", "el", "en", "y", "a", "los", "del", "se", "las", "por", "un", "para", "con", "no", "una", "su", "al", "lo", "como", "más", "pero", "sus", "le", "ya", "o", "fue", "este", "ha", "sí", "porque", "esta", "son", "entre", "está", "cuando", "muy", "sin", "sobre", "ser", "tiene", "también", "me", "hasta", "hay", "donde", "han", "quien", "están", "estado", "desde", "todo", "nos", "durante", "estados", "todos", "uno", "les", "ni", "contra", "otros", "fueron", "ese", "eso", "había", "ante", "ellos", "e", "esto", "mí", "antes", "algunos", "qué", "unos", "yo", "otro", "otras", "otra", "él", "tanto", "esa", "estos", "ulc", "pulgadas", "ml", "cm"}
+        
+        words = []
+        for item in market_data.get("items", []):
+            title = item.get("title", "").lower()
+            # Limpiamos caracteres especiales y separamos palabras
+            clean_words = re.findall(r'\b[a-záéíóúñ]{3,}\b', title)
+            for w in clean_words:
+                if w not in stopwords:
+                    words.append(w)
+                    
+        # Contamos pares de palabras (bigramas) o palabras sueltas más repetidas
+        counter = Counter(words)
+        common_words = [word.capitalize() for word, freq in counter.most_common(limit)]
+        return common_words if common_words else [market_data.get("keyword")]
 
     def export_csv(self, report, filename="seo_market_analysis.csv"):
         items = report.get("items", [])
@@ -117,22 +115,17 @@ async def seo_analysis(ctx, *, keyword: str):
     filename = None
     try:
         agent = MeliMasterSEOAgent(site_id="MLA")
-        winning_kw = await asyncio.to_thread(agent.get_winning_keyword, keyword)
-        market_data = await asyncio.to_thread(agent.analyze_market, winning_kw, limit=15)
+        market_data = await asyncio.to_thread(agent.analyze_market, keyword, limit=20)
         
         if "error" in market_data:
             await wait_msg.edit(content=f"❌ Error al consultar la API: {market_data['error']}")
             return
 
-        # Respaldo automático si la sugerencia no arroja productos
         if not market_data.get("items"):
-            winning_kw = keyword
-            market_data = await asyncio.to_thread(agent.analyze_market, winning_kw, limit=15)
-            if not market_data.get("items"):
-                await wait_msg.edit(content=f"⚠️ MercadoLibre no devolvió productos para '**{keyword}**'. Prueba con otra palabra clave.")
-                return
+            await wait_msg.edit(content=f"⚠️ MercadoLibre no devolvió productos para '**{keyword}**'. Prueba con otra palabra clave.")
+            return
 
-        safe_kw = "".join(c for c in winning_kw if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+        safe_kw = "".join(c for c in keyword if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
         filename = f"reporte_{safe_kw}.csv"
         
         await asyncio.to_thread(agent.export_csv, market_data, filename)
@@ -141,8 +134,7 @@ async def seo_analysis(ctx, *, keyword: str):
         aprobados = sum(1 for item in market_data["items"] if item["seo"]["is_valid"])
         
         embed = discord.Embed(title="📊 Auditoría SEO Mercado Libre", color=discord.Color.green())
-        embed.add_field(name="Keyword Semilla", value=f"*{keyword}*", inline=True)
-        embed.add_field(name="Keyword Ganadora", value=f"**{winning_kw}**", inline=True)
+        embed.add_field(name="Keyword Analizada", value=f"**{keyword}**", inline=True)
         embed.add_field(name="Aprobados", value=f"{aprobados}/{total_items}", inline=False)
         
         if os.path.exists(filename):
@@ -162,14 +154,20 @@ async def seo_analysis(ctx, *, keyword: str):
 
 @bot.command(name='keywords', aliases=['kw'])
 async def keyword_research(ctx, *, keyword: str):
-    wait_msg = await ctx.send(f"🔍 Buscando tendencias de búsqueda para: **{keyword}**...")
+    wait_msg = await ctx.send(f"🔍 Extrayendo palabras clave de los mejores productos para: **{keyword}**...")
     try:
         agent = MeliMasterSEOAgent(site_id="MLA")
-        top_kws = await asyncio.to_thread(agent.get_top_keywords, keyword, limit=8)
+        market_data = await asyncio.to_thread(agent.analyze_market, keyword, limit=20)
+        
+        if "error" in market_data or not market_data.get("items"):
+            await wait_msg.edit(content=f"❌ No se pudieron obtener datos para '**{keyword}**'.")
+            return
+
+        top_kws = agent.extract_top_keywords(market_data, limit=8)
         
         embed = discord.Embed(
-            title="🔥 Tendencias de Búsqueda en Mercado Libre",
-            description=f"Términos más populares basados en lo que la gente busca para: *{keyword}*",
+            title="🔥 Palabras Clave Dominantes del Mercado",
+            description=f"Términos más repetidos en los títulos de los principales competidores para: *{keyword}*",
             color=discord.Color.blue()
         )
         
@@ -177,8 +175,8 @@ async def keyword_research(ctx, *, keyword: str):
         for i, kw in enumerate(top_kws, 1):
             lista_format += f"**{i}.** `{kw}`\n"
             
-        embed.add_field(name="Palabras Clave Sugeridas", value=lista_format, inline=False)
-        embed.set_footer(text="Usa estas keywords en tus títulos para ganar visibilidad.")
+        embed.add_field(name="Palabras Clave Extraídas", value=lista_format, inline=False)
+        embed.set_footer(text="Usa estos términos para optimizar tu título en Mercado Libre.")
         
         await ctx.send(embed=embed)
         await wait_msg.delete()
